@@ -92,6 +92,9 @@
     <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="EnhancedSerialPort.cs">
+      <SubType>Component</SubType>
+    </Compile>
     <Compile Include="ReaderMethod.cs" />
     <Compile Include="ITalker.cs" />
     <Compile Include="MessageTran.cs" />

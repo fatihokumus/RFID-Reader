@@ -16,7 +16,7 @@ namespace Reader
     public class ReaderMethod
     {
         private ITalker italker;
-        private SerialPort iSerialPort;
+        private EnhancedSerialPort iSerialPort;
         private int m_nType = -1; 
 
         public ReciveDataCallback ReceiveCallback;
@@ -34,7 +34,7 @@ namespace Reader
 
             italker.MessageReceived += new MessageReceivedEventHandler(ReceivedTcpData);
 
-            iSerialPort = new SerialPort();
+            iSerialPort = new EnhancedSerialPort();
 
             iSerialPort.DataReceived+=new SerialDataReceivedEventHandler(ReceivedComData);
         }
