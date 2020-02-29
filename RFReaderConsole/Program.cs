@@ -1,11 +1,15 @@
-﻿using Reader;
+﻿
+using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
+using Reader;
+using RFReaderConsole.DTO;
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Data;
 using System.IO.Ports;
 using System.Linq;
 using System.Net;
-using System.Net.Sockets;
 using System.Text;
 using System.Threading;
 using System.Timers;
@@ -15,10 +19,12 @@ namespace RFReaderConsole
 
     class Program
     {
-
+        public static string _wsUserName = "";
+        public static string _wsPassword = "";
         public static string LogStatus = "DEBUG";
-        public static string SERVER_IP = "127.0.0.1";
-        public static int PORT_NO = 4444;
+        public static bool AutoLoad = true;
+        public static string API_URL;
+        public static string ROBOT_ID;
         public static Reader.ReaderMethod reader;
         public static int DeviceAntennaCount = 0;
         public static string htxtSendData;
@@ -31,6 +37,9 @@ namespace RFReaderConsole
         private static bool m_bDisplayLog = false;
         private static bool m_bInventory = false;
         private static bool m_bLockTab = false;
+        private static List<TagRead> _readTagList;
+        private static List<TagDto> _tagsList;
+
 
 
         public static int DeviceSerialPort = 0;
@@ -41,16 +50,37 @@ namespace RFReaderConsole
 
         static void Main(string[] args)
         {
-            //args = new string[3];
-            //args[0] = "COM3";
-            //args[1] = "115200";
-            //args[2] = "Start";
-            //args[3] = "4444";
+            //if (args.Length == 1 && HelpRequired(args[0]))
+            //{
+            //    DisplayHelp();
+            //}
 
-            PORT_NO = Convert.ToInt32(args[3]);
+            if (LogStatus == "DEBUG")
+            {
+                args = new string[7];
+                args[0] = "COM3";
+                args[1] = "115200";
+                args[2] = "Start";
+                args[3] = "http://localhost/robots/gettaglist";
+                args[4] = "6";
+                args[5] = "admin";
+                args[6] = "HamzAsya";
+            }
 
+            API_URL = args[3];
+            ROBOT_ID = args[4];
+            _wsUserName = args[5];
+            _wsPassword = args[6];
+
+            GetTagList();
+
+            _readTagList = new List<TagRead>();
             try
             {
+                // Get tag map
+                // start thread
+                //new System.Threading.Thread(new System.Threading.ThreadStart(this.EventThreadFunction)).Start()
+
                 timerInventory = new System.Timers.Timer();
                 timerInventory.Interval = 500;
                 timerInventory.Elapsed += new ElapsedEventHandler(timerInventory_Tick);
@@ -64,6 +94,7 @@ namespace RFReaderConsole
 
                 Connect(args);
 
+                new System.Threading.Thread(new System.Threading.ThreadStart(DetectPosition)).Start();
 
                 if (Console.ReadKey().Key == ConsoleKey.Escape)
                 {
@@ -75,8 +106,31 @@ namespace RFReaderConsole
             }
             catch (Exception ex)
             {
-                Console.WriteLine(ex.Message);
+                Logger(ex.Message);
             }
+        }
+
+        private static void DetectPosition()
+        {
+
+        }
+
+        private static void GetTagList()
+        {
+            HttpWebRequest webrequest = (HttpWebRequest)WebRequest.Create(API_URL + "/" + ROBOT_ID + "/");
+            webrequest.Method = "GET";
+            webrequest.ContentType = "application/x-www-form-urlencoded";
+            webrequest.Headers.Add("Authorization", "Basic " + Convert.ToBase64String(Encoding.Default.GetBytes(_wsUserName + ":" + _wsPassword)));
+            
+            HttpWebResponse webresponse = (HttpWebResponse)webrequest.GetResponse();
+            Encoding enc = System.Text.Encoding.GetEncoding("utf-8");
+            System.IO.StreamReader responseStream = new System.IO.StreamReader(webresponse.GetResponseStream(), enc);
+            string result = string.Empty;
+            result = responseStream.ReadToEnd();
+            webresponse.Close();
+
+            var data = JsonConvert.DeserializeObject<TagMasterDto>(result);
+            _tagsList = JsonConvert.DeserializeObject<List<TagDto>>(data.tags);
         }
 
         private static void timerInventory_Tick(object sender, ElapsedEventArgs e)
@@ -256,7 +310,6 @@ namespace RFReaderConsole
             htxtCheckData = string.Format(" {0:X2}", btCheckData);
         }
 
-
         private static void AnalyData(MessageTran msgTran)
         {
             Logger("AnalyData started. " + msgTran.Cmd.ToString());
@@ -399,7 +452,6 @@ namespace RFReaderConsole
             }
         }
 
-
         private static void ProcessSetWorkAntenna(MessageTran msgTran)
         {
             int intCurrentAnt = 0;
@@ -413,7 +465,7 @@ namespace RFReaderConsole
                 if (msgTran.AryData[0] == 0x10)
                 {
                     m_curSetting.btReadId = msgTran.ReadId;
-                    Console.WriteLine(strCmd);
+                    Logger(strCmd);
 
                     //Verify inventory operations
                     if (m_bInventory)
@@ -444,6 +496,7 @@ namespace RFReaderConsole
         }
 
         private delegate void RunLoopInventoryUnsafe();
+
         private static void RunLoopInventroy()
         {
             Logger("RunLoopInventroy() started");
@@ -608,6 +661,7 @@ namespace RFReaderConsole
         }
 
         private delegate void RefreshInventoryRealUnsafe(byte btCmd);
+
         private static void RefreshInventoryReal(byte btCmd)
         {
             Logger("RefreshInventoryReal checkIF: 0x88  != :" + btCmd.ToString());
@@ -644,13 +698,26 @@ namespace RFReaderConsole
                         //{
                         DataRow row = m_curInventoryBuffer.dtTagTable.Rows[nEpcLength - 1];
 
-                        string textToSend = row[2].ToString() + ":" + row[4].ToString();
-                        Console.WriteLine(textToSend);
+                        //string textToSend = row[2].ToString() + ":" + row[4].ToString();
+                        //Logger(textToSend);
 
-                        RFGateSocket rfocket = new RFGateSocket(new IPEndPoint(IPAddress.Parse(SERVER_IP).Address, PORT_NO));
-                        rfocket.Start();
 
-                        rfocket.SendData(textToSend);
+                        var tagList = _readTagList.Where(w => w.Tag == row[2].ToString()).ToList();
+                        if (tagList.Count > 0)
+                            tagList.ForEach(f => f.RSSI = row[4].ToString());
+                        else
+                            _readTagList.Add(new TagRead() {
+                                RSSI = row[4].ToString(),
+                                Tag = row[2].ToString(),
+                                ReadingTime = System.DateTime.Now
+                            });
+
+
+
+                        //RFGateSocket rfocket = new RFGateSocket(new IPEndPoint(IPAddress.Parse(SERVER_IP).Address, PORT_NO));
+                        //rfocket.Start();
+
+                        //rfocket.SendData(textToSend);
                         
 
                         //TcpClient client = new TcpClient(SERVER_IP, PORT_NO);
@@ -867,4 +934,6 @@ namespace RFReaderConsole
             }
         }
     }
+
+    
 }
