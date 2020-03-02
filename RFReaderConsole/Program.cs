@@ -13,6 +13,7 @@ using System.Net;
 using System.Text;
 using System.Threading;
 using System.Timers;
+using WebSocketSharp;
 
 namespace RFReaderConsole
 {
@@ -23,8 +24,12 @@ namespace RFReaderConsole
         public static string _wsPassword = "";
         public static string LogStatus = "DEBUG";
         public static bool AutoLoad = true;
-        public static string API_URL;
-        public static string ROBOT_ID;
+        public static string _Api_Url;
+        public static string _Robot_Id;
+        public static string _Com_Port;
+        public static string _Boud_Rate;
+        public static string _Start_Read;
+        public static string _Reading_Time_Elapsed;
         public static Reader.ReaderMethod reader;
         public static int DeviceAntennaCount = 0;
         public static string htxtSendData;
@@ -37,24 +42,15 @@ namespace RFReaderConsole
         private static bool m_bDisplayLog = false;
         private static bool m_bInventory = false;
         private static bool m_bLockTab = false;
-        private static List<TagRead> _readTagList;
         private static List<TagDto> _tagsList;
-
-
-
         public static int DeviceSerialPort = 0;
-
         private static int m_nTotal = 0;
-
         private static System.Timers.Timer timerInventory;
+        private static System.Timers.Timer timerLocalization;
+        private static WebSocket _ws;
 
         static void Main(string[] args)
         {
-            //if (args.Length == 1 && HelpRequired(args[0]))
-            //{
-            //    DisplayHelp();
-            //}
-
             if (LogStatus == "DEBUG")
             {
                 args = new string[7];
@@ -65,22 +61,118 @@ namespace RFReaderConsole
                 args[4] = "6";
                 args[5] = "admin";
                 args[6] = "HamzAsya";
+                args[7] = "1000";
             }
-
-            API_URL = args[3];
-            ROBOT_ID = args[4];
+            _Com_Port = args[0];
+            _Boud_Rate = args[1];
+            _Start_Read = args[2];
+            _Api_Url = args[3];
+            _Robot_Id = args[4];
             _wsUserName = args[5];
             _wsPassword = args[6];
+            _Reading_Time_Elapsed = args[7];
 
             GetTagList();
+            StartToRead();
 
-            _readTagList = new List<TagRead>();
+            timerLocalization = new System.Timers.Timer();
+            timerLocalization.Interval = 1000;
+            timerLocalization.Elapsed += new ElapsedEventHandler(timerLocalization_Tick);
+            timerLocalization.Enabled = true;
+
+            //var ws = new WebSocket(link);
+
+            ////ws.SetHeaders(headers);
+            //proxyUrl = null;
+            //ws.SetProxy(proxyUrl, string.Empty, string.Empty);
+            //ws.OnError += Ws_OnError;
+            //ws.OnClose += Ws_OnClose;
+            //ws.OnMessage += Ws_OnMessage;
+            //ws.OnOpen += Ws_OnOpen;
+
+            //ws.Connect();
+
+            //robotSocketList.Add(new RobotWebSocket() { name = roomName, _ws = ws });
+
+            //string textMerhaba = "{\"message\":\"Merhaba\"}";
+            //ws.SendAsync(textMerhaba, delegate (bool completed)
+            //{
+            //    if (completed)
+            //    {
+            //        string textName = "{\"message\":\"Benim adım:" + roomName + "\"}";
+            //        ws.SendAsync(textName, delegate (bool completed2)
+            //        {
+            //            if (completed2)
+            //            {
+            //                string textKonum = "{\"message\":\"Son Konumum: x:" + p.X + "; y:" + p.Y + "\"}";
+            //                ws.SendAsync(textKonum, delegate (bool completed3)
+            //                {
+            //                });
+            //            }
+            //        });
+            //    }
+            //});
+        }
+
+        private static void timerLocalization_Tick(object sender, ElapsedEventArgs e)
+        {
+            var time = Convert.ToInt32(_Reading_Time_Elapsed);
+            var now = System.DateTime.Now;
+            var taglist = _tagsList.Where(w => (now - w.fields.ReadingInfo.Max(m => m.ReadingTime)).Milliseconds <= time).ToList();
+
+            foreach (var item in taglist)
+            {
+                var bestRSSI = 0;
+                foreach (var reading in item.fields.ReadingInfo)
+                {
+                    if (reading.ReadingTime > now.AddMilliseconds(-1000) && reading.RSSI > bestRSSI)
+                    {
+                        bestRSSI = reading.RSSI;
+                    }
+                }
+                item.fields.BestRSSI = bestRSSI;
+            }
+            var closesTags = taglist.OrderByDescending(o => o.fields.BestRSSI).Take(4).ToList();
+            if (closesTags.Count >= 3)
+            {
+
+                var first = closesTags[1];
+                var second = closesTags[2];
+                var third = closesTags[3];
+
+                var x1 = first.fields.PositionX - second.fields.PositionX;
+                var y1 = first.fields.PositionY - second.fields.PositionY;
+
+                x1 = first.fields.PositionX * 100 + ((second.fields.BestRSSI / (first.fields.BestRSSI + second.fields.BestRSSI)) * (x1 * 100));
+                y1 = first.fields.PositionY * 100 + ((second.fields.BestRSSI / (first.fields.BestRSSI + second.fields.BestRSSI)) * (y1 * 100));
+
+
+                var x2 = first.fields.PositionX - third.fields.PositionX;
+                var y2 = first.fields.PositionY - third.fields.PositionY;
+
+                x2 = first.fields.PositionX * 100 + ((third.fields.BestRSSI / (first.fields.BestRSSI + third.fields.BestRSSI)) * (x2 * 100));
+                y2 = first.fields.PositionY * 100 + ((third.fields.BestRSSI / (first.fields.BestRSSI + third.fields.BestRSSI)) * (y2 * 100));
+
+
+                var x3 = second.fields.PositionX - third.fields.PositionX;
+                var y3 = second.fields.PositionY - third.fields.PositionY;
+
+                x3 = second.fields.PositionX * 100 + ((third.fields.BestRSSI / (second.fields.BestRSSI + third.fields.BestRSSI)) * (x3 * 100));
+                y3 = second.fields.PositionY * 100 + ((third.fields.BestRSSI / (second.fields.BestRSSI + third.fields.BestRSSI)) * (y3 * 100));
+                var x0 = (x1 + x2 + x3) / 3;
+                var y0 = (y1 + y2 + y3) / 3;
+
+
+                
+
+            }
+        }
+
+
+        private static void StartToRead()
+        {
             try
             {
-                // Get tag map
-                // start thread
-                //new System.Threading.Thread(new System.Threading.ThreadStart(this.EventThreadFunction)).Start()
-
                 timerInventory = new System.Timers.Timer();
                 timerInventory.Interval = 500;
                 timerInventory.Elapsed += new ElapsedEventHandler(timerInventory_Tick);
@@ -90,9 +182,7 @@ namespace RFReaderConsole
                 DeviceSerialPort = 2;
 
                 reader.AnalyCallback = AnalyData;
-
-
-                Connect(args);
+                Connect();
 
                 new System.Threading.Thread(new System.Threading.ThreadStart(DetectPosition)).Start();
 
@@ -117,11 +207,11 @@ namespace RFReaderConsole
 
         private static void GetTagList()
         {
-            HttpWebRequest webrequest = (HttpWebRequest)WebRequest.Create(API_URL + "/" + ROBOT_ID + "/");
+            HttpWebRequest webrequest = (HttpWebRequest)WebRequest.Create(_Api_Url + "/" + _Robot_Id + "/");
             webrequest.Method = "GET";
             webrequest.ContentType = "application/x-www-form-urlencoded";
             webrequest.Headers.Add("Authorization", "Basic " + Convert.ToBase64String(Encoding.Default.GetBytes(_wsUserName + ":" + _wsPassword)));
-            
+
             HttpWebResponse webresponse = (HttpWebResponse)webrequest.GetResponse();
             Encoding enc = System.Text.Encoding.GetEncoding("utf-8");
             System.IO.StreamReader responseStream = new System.IO.StreamReader(webresponse.GetResponseStream(), enc);
@@ -143,14 +233,11 @@ namespace RFReaderConsole
             }
         }
 
-        private static void Connect(string[] args)
+        private static void Connect()
         {
-
-
-            //Processing serial port to connect reader.
             string strException = string.Empty;
-            string strComPort = args[0];
-            int nBaudrate = Convert.ToInt32(args[1]);
+            string strComPort = _Com_Port;
+            int nBaudrate = Convert.ToInt32(_Boud_Rate);
 
             int nRet = reader.OpenCom(strComPort, nBaudrate, out strException);
             if (nRet != 0)
@@ -175,7 +262,7 @@ namespace RFReaderConsole
 
                 string strLog = "Connect" + strComPort + "@" + nBaudrate.ToString();
                 Logger(strLog);
-                if (args[2] == "Start")
+                if (_Start_Read == "Start")
                 {
                     try
                     {
@@ -184,85 +271,19 @@ namespace RFReaderConsole
                         m_curInventoryBuffer.ClearInventoryPar();
                         m_curInventoryBuffer.btRepeat = Convert.ToByte(repeatCommand);
 
-                        //if (checkBoxRealSession.Checked == true)
-                        //{
-                        //    if (comboBoxSession.SelectedIndex == -1)
-                        //    {
-                        //        throw new Exception("Please enter Session ID");
-                        //    }
-
-                        //    if (comboBoxTarget.SelectedIndex == -1)
-                        //    {
-                        //        throw new Exception("Please enter Inventoried Flag");
-                        //    }
-
-
-                        //}
-                        //else
-                        //{
                         m_curInventoryBuffer.bLoopCustomizedSession = false;
-                        //}
-
-                        //if (checkBoxAntenna1.Checked)
-                        //{
                         m_curInventoryBuffer.lAntenna.Add(0x00);
-                        //}
-                        //if (checkBoxAntenna2.Checked)
-                        //{
                         m_curInventoryBuffer.lAntenna.Add(0x01);
-                        //}
-                        //if (checkBoxAntenna3.Checked)
-                        //{
                         m_curInventoryBuffer.lAntenna.Add(0x02);
-                        //}
-                        //if (checkBoxAntenna4.Checked)
-                        //{
                         m_curInventoryBuffer.lAntenna.Add(0x03);
-                        //}
-                        //if (checkBoxAntenna5.Checked)
-                        //{
-                        //    m_curInventoryBuffer.lAntenna.Add(0x04);
-                        //}
-                        //if (checkBoxAntenna6.Checked)
-                        //{
-                        //    m_curInventoryBuffer.lAntenna.Add(0x05);
-                        //}
-                        //if (checkBoxAntenna7.Checked)
-                        //{
-                        //    m_curInventoryBuffer.lAntenna.Add(0x06);
-                        //}
-                        //if (checkBoxAntenna8.Checked)
-                        //{
-                        //    m_curInventoryBuffer.lAntenna.Add(0x07);
-                        //}
                         if (m_curInventoryBuffer.lAntenna.Count == 0)
                         {
                             Logger("One antenna must be selected");
                         }
 
-                        //Default cycle to send commands
-                        //if (m_curInventoryBuffer.bLoopInventory)
-                        //{
-                        //m_bInventory = false;
-                        //m_curInventoryBuffer.bLoopInventory = false;
-                        //buttonStartInventory.BackColor = Color.WhiteSmoke;
-                        //buttonStartInventory.ForeColor = Color.DarkBlue;
-                        //buttonStartInventory.Text = "Start Inventory";
-                        //timerInventory.Enabled = false;
-
-                        //return;
-                        //}
-                        //else
-                        //{
                         m_bInventory = true;
                         m_curInventoryBuffer.bLoopInventory = true;
-                        //buttonStartInventory.BackColor = Color.DarkBlue;
-                        //buttonStartInventory.ForeColor = Color.White;
-                        //buttonStartInventory.Text = "Stop Inventory";
-                        //}
-
                         m_curInventoryBuffer.bLoopInventoryReal = true;
-
 
                         m_nTotal = 0;
 
@@ -273,9 +294,6 @@ namespace RFReaderConsole
 
                         timerInventory.Enabled = true;
                         timerInventory.Enabled = true;
-
-                        Logger("--1--");
-                        Logger("--Timer--");
                     }
                     catch (Exception ex)
                     {
@@ -285,7 +303,7 @@ namespace RFReaderConsole
             }
         }
 
-        private static void Disconnect(string[] args)
+        private static void Disconnect()
         {
             try
             {
@@ -690,7 +708,7 @@ namespace RFReaderConsole
                         }
 
                         //Variable of list
-                        int nEpcCount = 0;
+
                         int nEpcLength = m_curInventoryBuffer.dtTagTable.Rows.Count;
 
 
@@ -701,24 +719,21 @@ namespace RFReaderConsole
                         //string textToSend = row[2].ToString() + ":" + row[4].ToString();
                         //Logger(textToSend);
 
-
-                        var tagList = _readTagList.Where(w => w.Tag == row[2].ToString()).ToList();
-                        if (tagList.Count > 0)
-                            tagList.ForEach(f => f.RSSI = row[4].ToString());
-                        else
-                            _readTagList.Add(new TagRead() {
-                                RSSI = row[4].ToString(),
-                                Tag = row[2].ToString(),
-                                ReadingTime = System.DateTime.Now
+                        var tag = _tagsList.Where(w => w.fields.Code == row[2].ToString()).FirstOrDefault();
+                        if (tag != null)
+                        {
+                            tag.fields.ReadingInfo.Add(new ReadingInfo
+                            {
+                                RSSI = Convert.ToInt32(row[4]),
+                                ReadingTime = System.DateTime.Now,
                             });
-
-
+                        }
 
                         //RFGateSocket rfocket = new RFGateSocket(new IPEndPoint(IPAddress.Parse(SERVER_IP).Address, PORT_NO));
                         //rfocket.Start();
 
                         //rfocket.SendData(textToSend);
-                        
+
 
                         //TcpClient client = new TcpClient(SERVER_IP, PORT_NO);
                         //NetworkStream nwStream = client.GetStream();
@@ -935,5 +950,5 @@ namespace RFReaderConsole
         }
     }
 
-    
+
 }
