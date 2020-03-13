@@ -22,7 +22,7 @@ namespace RFReaderConsole
     {
         public static string _wsUserName = "";
         public static string _wsPassword = "";
-        public static string LogStatus = "DEBUG";
+        public static string LogStatus = "DEBUG2";
         public static bool AutoLoad = true;
         public static string _Api_Url;
         public static string _Robot_Id;
@@ -48,20 +48,26 @@ namespace RFReaderConsole
         private static System.Timers.Timer timerInventory;
         private static System.Timers.Timer timerLocalization;
         private static WebSocket _ws;
+        private static string _wslink;
+        private static string _robotcode;
+        private static string _distance;
 
         static void Main(string[] args)
         {
             if (LogStatus == "DEBUG")
             {
-                args = new string[7];
+                args = new string[11];
                 args[0] = "COM3";
                 args[1] = "115200";
                 args[2] = "Start";
-                args[3] = "http://localhost/robots/gettaglist";
+                args[3] = "http://localhost:8000/robots/gettaglist";
                 args[4] = "6";
                 args[5] = "admin";
                 args[6] = "HamzAsya";
                 args[7] = "1000";
+                args[8] = "localhost:8000";
+                args[9] = "M02R201";
+                args[10] = "100";
             }
             _Com_Port = args[0];
             _Boud_Rate = args[1];
@@ -71,8 +77,12 @@ namespace RFReaderConsole
             _wsUserName = args[5];
             _wsPassword = args[6];
             _Reading_Time_Elapsed = args[7];
+            _wslink = "ws://" + args[8] + "/robots/iot/";
+            _robotcode = args[9];
+            _distance = args[10];
 
             GetTagList();
+            OpenWebSocket();
             StartToRead();
 
             timerLocalization = new System.Timers.Timer();
@@ -80,38 +90,26 @@ namespace RFReaderConsole
             timerLocalization.Elapsed += new ElapsedEventHandler(timerLocalization_Tick);
             timerLocalization.Enabled = true;
 
-            //var ws = new WebSocket(link);
+            if (Console.ReadKey().Key == ConsoleKey.Escape)
+            {
+                m_bInventory = true;
+                m_curInventoryBuffer.bLoopInventory = true;
+                reader.SignOut();
+            }
+            
+        }
 
-            ////ws.SetHeaders(headers);
-            //proxyUrl = null;
-            //ws.SetProxy(proxyUrl, string.Empty, string.Empty);
-            //ws.OnError += Ws_OnError;
-            //ws.OnClose += Ws_OnClose;
-            //ws.OnMessage += Ws_OnMessage;
-            //ws.OnOpen += Ws_OnOpen;
+        private static void OpenWebSocket()
+        {
+            var link = _wslink + _robotcode + "/";
+            _ws = new WebSocket(link);
+            _ws.SetProxy(null, string.Empty, string.Empty);
+            _ws.OnError += Ws_OnError;
+            _ws.OnClose += Ws_OnClose;
+            _ws.OnMessage += Ws_OnMessage;
+            _ws.OnOpen += Ws_OnOpen;
 
-            //ws.Connect();
-
-            //robotSocketList.Add(new RobotWebSocket() { name = roomName, _ws = ws });
-
-            //string textMerhaba = "{\"message\":\"Merhaba\"}";
-            //ws.SendAsync(textMerhaba, delegate (bool completed)
-            //{
-            //    if (completed)
-            //    {
-            //        string textName = "{\"message\":\"Benim adım:" + roomName + "\"}";
-            //        ws.SendAsync(textName, delegate (bool completed2)
-            //        {
-            //            if (completed2)
-            //            {
-            //                string textKonum = "{\"message\":\"Son Konumum: x:" + p.X + "; y:" + p.Y + "\"}";
-            //                ws.SendAsync(textKonum, delegate (bool completed3)
-            //                {
-            //                });
-            //            }
-            //        });
-            //    }
-            //});
+            _ws.Connect();
         }
 
         private static void timerLocalization_Tick(object sender, ElapsedEventArgs e)
@@ -143,27 +141,34 @@ namespace RFReaderConsole
                 var x1 = first.fields.PositionX - second.fields.PositionX;
                 var y1 = first.fields.PositionY - second.fields.PositionY;
 
-                x1 = first.fields.PositionX * 100 + ((second.fields.BestRSSI / (first.fields.BestRSSI + second.fields.BestRSSI)) * (x1 * 100));
-                y1 = first.fields.PositionY * 100 + ((second.fields.BestRSSI / (first.fields.BestRSSI + second.fields.BestRSSI)) * (y1 * 100));
+                var dist = Convert.ToInt32(_distance);
+                x1 = first.fields.PositionX * dist + ((second.fields.BestRSSI / (first.fields.BestRSSI + second.fields.BestRSSI)) * (x1 * dist));
+                y1 = first.fields.PositionY * dist + ((second.fields.BestRSSI / (first.fields.BestRSSI + second.fields.BestRSSI)) * (y1 * dist));
 
 
                 var x2 = first.fields.PositionX - third.fields.PositionX;
                 var y2 = first.fields.PositionY - third.fields.PositionY;
 
-                x2 = first.fields.PositionX * 100 + ((third.fields.BestRSSI / (first.fields.BestRSSI + third.fields.BestRSSI)) * (x2 * 100));
-                y2 = first.fields.PositionY * 100 + ((third.fields.BestRSSI / (first.fields.BestRSSI + third.fields.BestRSSI)) * (y2 * 100));
+                x2 = first.fields.PositionX * dist + ((third.fields.BestRSSI / (first.fields.BestRSSI + third.fields.BestRSSI)) * (x2 * dist));
+                y2 = first.fields.PositionY * dist + ((third.fields.BestRSSI / (first.fields.BestRSSI + third.fields.BestRSSI)) * (y2 * dist));
 
 
                 var x3 = second.fields.PositionX - third.fields.PositionX;
                 var y3 = second.fields.PositionY - third.fields.PositionY;
 
-                x3 = second.fields.PositionX * 100 + ((third.fields.BestRSSI / (second.fields.BestRSSI + third.fields.BestRSSI)) * (x3 * 100));
-                y3 = second.fields.PositionY * 100 + ((third.fields.BestRSSI / (second.fields.BestRSSI + third.fields.BestRSSI)) * (y3 * 100));
+                x3 = second.fields.PositionX * dist + ((third.fields.BestRSSI / (second.fields.BestRSSI + third.fields.BestRSSI)) * (x3 * dist));
+                y3 = second.fields.PositionY * dist + ((third.fields.BestRSSI / (second.fields.BestRSSI + third.fields.BestRSSI)) * (y3 * dist));
                 var x0 = (x1 + x2 + x3) / 3;
                 var y0 = (y1 + y2 + y3) / 3;
 
+                string textKonum = "{\"message\":\"Son Konumum: x:" + x0 + "; y:" + y0 + "\"}";
+                _ws.SendAsync(textKonum, delegate (bool completed3)
+                {
 
-                
+                });
+
+
+
 
             }
         }
@@ -186,12 +191,7 @@ namespace RFReaderConsole
 
                 new System.Threading.Thread(new System.Threading.ThreadStart(DetectPosition)).Start();
 
-                if (Console.ReadKey().Key == ConsoleKey.Escape)
-                {
-                    m_bInventory = true;
-                    m_curInventoryBuffer.bLoopInventory = true;
-                    reader.SignOut();
-                }
+               
 
             }
             catch (Exception ex)
@@ -948,7 +948,49 @@ namespace RFReaderConsole
                 Console.WriteLine(input + " -- " + DateTime.Now.ToLongTimeString());
             }
         }
+
+        private static void Ws_OnError(object sender, ErrorEventArgs e)
+        {
+            Logger(e.Message);
+            CloseWebSocket((WebSocket)sender);
+        }
+
+        private static void CloseWebSocket(WebSocket ws)
+        {
+            if (ws != null && ws.IsAlive)
+            {
+                ws.OnClose -= Ws_OnClose;
+                ws.Close();
+                ws = null;
+            }
+        }
+
+        private static void Ws_OnClose(object sender, CloseEventArgs e)
+        {
+            Logger(e.Reason);
+            CloseWebSocket((WebSocket)sender);
+        }
+
+        private static void Ws_OnMessage(object sender, MessageEventArgs e)
+        {
+
+            if (e.Data == "{\"message\": \"Orada misin?\"}")
+            {
+                string text = "{\"message\":\"Evet\"}";
+                ((WebSocket)sender).SendAsync(text, delegate (bool completed) { });
+            }
+            //TODO: Mesaj geldiğinde ve göndedrildiğinde burası çalışacak
+        }
+        private static void Ws_OnOpen(object sender, EventArgs e)
+        {
+            // Bağlantı oluştuğunda yapılacaklar
+        }
+
     }
 
-
+    public class WebSocketRequest
+    {
+        public WebSocket _ws { get; set; }
+        public string message { get; set; }
+    }
 }
