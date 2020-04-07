@@ -22,7 +22,7 @@ namespace RFReaderConsole
     {
         public static string _wsUserName = "";
         public static string _wsPassword = "";
-        public static string LogStatus = "DEBUG2";
+        public static string LogStatus = "DEBUG3";
         public static bool AutoLoad = true;
         public static string _Api_Url;
         public static string _Robot_Id;
@@ -31,7 +31,7 @@ namespace RFReaderConsole
         public static string _Start_Read;
         public static string _Reading_Time_Elapsed;
         public static Reader.ReaderMethod reader;
-        public static int DeviceAntennaCount = 0;
+        public static int DeviceAntennaCount = 4;
         public static string htxtSendData;
         public static string htxtCheckData;
         private static InventoryBuffer m_curInventoryBuffer = new InventoryBuffer();
@@ -60,12 +60,12 @@ namespace RFReaderConsole
                 args[0] = "COM3";
                 args[1] = "115200";
                 args[2] = "Start";
-                args[3] = "http://localhost:8000/robots/gettaglist";
+                args[3] = "http://192.168.43.144/robots/gettaglist";
                 args[4] = "6";
                 args[5] = "admin";
                 args[6] = "HamzAsya";
                 args[7] = "1000";
-                args[8] = "localhost:8000";
+                args[8] = "192.168.43.144";
                 args[9] = "M02R201";
                 args[10] = "100";
             }
@@ -89,6 +89,7 @@ namespace RFReaderConsole
             timerLocalization.Interval = 1000;
             timerLocalization.Elapsed += new ElapsedEventHandler(timerLocalization_Tick);
             timerLocalization.Enabled = true;
+            timerLocalization.Enabled = true;
 
             if (Console.ReadKey().Key == ConsoleKey.Escape)
             {
@@ -96,7 +97,7 @@ namespace RFReaderConsole
                 m_curInventoryBuffer.bLoopInventory = true;
                 reader.SignOut();
             }
-            
+
         }
 
         private static void OpenWebSocket()
@@ -114,63 +115,86 @@ namespace RFReaderConsole
 
         private static void timerLocalization_Tick(object sender, ElapsedEventArgs e)
         {
-            var time = Convert.ToInt32(_Reading_Time_Elapsed);
-            var now = System.DateTime.Now;
-            var taglist = _tagsList.Where(w => (now - w.fields.ReadingInfo.Max(m => m.ReadingTime)).Milliseconds <= time).ToList();
-
-            foreach (var item in taglist)
+            try
             {
-                var bestRSSI = 0;
-                foreach (var reading in item.fields.ReadingInfo)
+                Console.WriteLine("Timer başladı");
+                var time = Convert.ToInt32(_Reading_Time_Elapsed);
+                var now = System.DateTime.Now;
+                var taglist = _tagsList.Where(w => w.fields.ReadingInfo != null && w.fields.ReadingInfo.Count > 0).ToList().Where(w => (now - w.fields.ReadingInfo.Max(m => m.ReadingTime)).Milliseconds <= time).ToList();
+                Console.WriteLine("Liste okundu " + taglist.Count.ToString());
+                foreach (var item in taglist)
                 {
-                    if (reading.ReadingTime > now.AddMilliseconds(-1000) && reading.RSSI > bestRSSI)
+                    var bestRSSI = 0;
+                    foreach (var reading in item.fields.ReadingInfo)
                     {
-                        bestRSSI = reading.RSSI;
+                        if (reading.ReadingTime > now.AddMilliseconds(-time) && reading.RSSI > bestRSSI)
+                        {
+                            bestRSSI = reading.RSSI;
+
+                        }
                     }
+                    item.fields.BestRSSI = bestRSSI;
                 }
-                item.fields.BestRSSI = bestRSSI;
-            }
-            var closesTags = taglist.OrderByDescending(o => o.fields.BestRSSI).Take(4).ToList();
-            if (closesTags.Count >= 3)
-            {
-
-                var first = closesTags[1];
-                var second = closesTags[2];
-                var third = closesTags[3];
-
-                var x1 = first.fields.PositionX - second.fields.PositionX;
-                var y1 = first.fields.PositionY - second.fields.PositionY;
-
-                var dist = Convert.ToInt32(_distance);
-                x1 = first.fields.PositionX * dist + ((second.fields.BestRSSI / (first.fields.BestRSSI + second.fields.BestRSSI)) * (x1 * dist));
-                y1 = first.fields.PositionY * dist + ((second.fields.BestRSSI / (first.fields.BestRSSI + second.fields.BestRSSI)) * (y1 * dist));
-
-
-                var x2 = first.fields.PositionX - third.fields.PositionX;
-                var y2 = first.fields.PositionY - third.fields.PositionY;
-
-                x2 = first.fields.PositionX * dist + ((third.fields.BestRSSI / (first.fields.BestRSSI + third.fields.BestRSSI)) * (x2 * dist));
-                y2 = first.fields.PositionY * dist + ((third.fields.BestRSSI / (first.fields.BestRSSI + third.fields.BestRSSI)) * (y2 * dist));
-
-
-                var x3 = second.fields.PositionX - third.fields.PositionX;
-                var y3 = second.fields.PositionY - third.fields.PositionY;
-
-                x3 = second.fields.PositionX * dist + ((third.fields.BestRSSI / (second.fields.BestRSSI + third.fields.BestRSSI)) * (x3 * dist));
-                y3 = second.fields.PositionY * dist + ((third.fields.BestRSSI / (second.fields.BestRSSI + third.fields.BestRSSI)) * (y3 * dist));
-                var x0 = (x1 + x2 + x3) / 3;
-                var y0 = (y1 + y2 + y3) / 3;
-
-                string textKonum = "{\"message\":\"Son Konumum: x:" + x0 + "; y:" + y0 + "\"}";
-                _ws.SendAsync(textKonum, delegate (bool completed3)
+                var closesTags = taglist.OrderByDescending(o => o.fields.BestRSSI).Take(4).ToList();
+                if (closesTags.Count >= 3)
                 {
 
-                });
+                    var first = closesTags[1];
+                    var second = closesTags[2];
+                    var third = closesTags[3];
+
+                    var x1 = first.fields.PositionX - second.fields.PositionX;
+                    var y1 = first.fields.PositionY - second.fields.PositionY;
+
+                    var dist = Convert.ToInt32(_distance);
+                    x1 = first.fields.PositionX * dist + ((second.fields.BestRSSI / (first.fields.BestRSSI + second.fields.BestRSSI)) * (x1 * dist));
+                    y1 = first.fields.PositionY * dist + ((second.fields.BestRSSI / (first.fields.BestRSSI + second.fields.BestRSSI)) * (y1 * dist));
 
 
+                    var x2 = first.fields.PositionX - third.fields.PositionX;
+                    var y2 = first.fields.PositionY - third.fields.PositionY;
+
+                    x2 = first.fields.PositionX * dist + ((third.fields.BestRSSI / (first.fields.BestRSSI + third.fields.BestRSSI)) * (x2 * dist));
+                    y2 = first.fields.PositionY * dist + ((third.fields.BestRSSI / (first.fields.BestRSSI + third.fields.BestRSSI)) * (y2 * dist));
 
 
+                    var x3 = second.fields.PositionX - third.fields.PositionX;
+                    var y3 = second.fields.PositionY - third.fields.PositionY;
+
+                    x3 = second.fields.PositionX * dist + ((third.fields.BestRSSI / (second.fields.BestRSSI + third.fields.BestRSSI)) * (x3 * dist));
+                    y3 = second.fields.PositionY * dist + ((third.fields.BestRSSI / (second.fields.BestRSSI + third.fields.BestRSSI)) * (y3 * dist));
+
+                    int x0;
+                    if ((x1 + x2 + x3) ==0)
+                        x0 = 0;
+                    else
+                        x0 = (x1 + x2 + x3) / 3;
+
+                    int y0;
+                    if ((y1 + y2 + y3) == 0)
+                        y0 = 0;
+                    else
+                        y0 = (y1 + y2 + y3) / 3;
+
+                    x0 += dist;
+                    y0 += dist;
+                    string textKonum = "{\"message\":\"Son Konumum: x:" + x0 + "; y:" + y0 + "\"}";
+                    Console.WriteLine(textKonum);
+                    _ws.SendAsync(textKonum, delegate (bool completed3)
+                    {
+
+                    });
+                }
+                else
+                {
+                    Console.WriteLine("Konum okunmadı");
+                }
             }
+            catch (Exception ex)
+            {
+                Console.WriteLine(ex.InnerException == null ? (ex.Message + "\n" + ex.StackTrace) : (ex.InnerException.Message + "\n" + ex.InnerException.StackTrace));
+            }
+
         }
 
 
@@ -179,7 +203,7 @@ namespace RFReaderConsole
             try
             {
                 timerInventory = new System.Timers.Timer();
-                timerInventory.Interval = 500;
+                timerInventory.Interval = 50;
                 timerInventory.Elapsed += new ElapsedEventHandler(timerInventory_Tick);
 
                 DeviceAntennaCount = 4;
@@ -191,7 +215,7 @@ namespace RFReaderConsole
 
                 new System.Threading.Thread(new System.Threading.ThreadStart(DetectPosition)).Start();
 
-               
+
 
             }
             catch (Exception ex)
@@ -708,26 +732,39 @@ namespace RFReaderConsole
                         }
 
                         //Variable of list
-
+                        int nEpcCount = 0;
                         int nEpcLength = m_curInventoryBuffer.dtTagTable.Rows.Count;
 
-
-                        //if (nEpcCount < nEpcLength)
-                        //{
-                        DataRow row = m_curInventoryBuffer.dtTagTable.Rows[nEpcLength - 1];
-
-                        //string textToSend = row[2].ToString() + ":" + row[4].ToString();
-                        //Logger(textToSend);
-
-                        var tag = _tagsList.Where(w => w.fields.Code == row[2].ToString()).FirstOrDefault();
-                        if (tag != null)
+                        try
                         {
-                            tag.fields.ReadingInfo.Add(new ReadingInfo
+                            if (nEpcCount < nEpcLength)
                             {
-                                RSSI = Convert.ToInt32(row[4]),
-                                ReadingTime = System.DateTime.Now,
-                            });
+                                DataRow row = m_curInventoryBuffer.dtTagTable.Rows[nEpcLength - 1];
+
+                                //string textToSend = row[2].ToString() + ":" + row[4].ToString();
+                                //Logger(textToSend);
+
+
+                                var tag = _tagsList.Where(w => w.fields.Code.Trim() == row[2].ToString().Trim()).FirstOrDefault();
+                                Console.WriteLine(row[2].ToString());
+                                if (tag != null)
+                                {
+                                    if (tag.fields.ReadingInfo == null)
+                                        tag.fields.ReadingInfo = new List<ReadingInfo>();
+
+                                    tag.fields.ReadingInfo.Add(new ReadingInfo
+                                    {
+                                        RSSI = Convert.ToInt32(row[4]),
+                                        ReadingTime = System.DateTime.Now,
+                                    });
+                                }
+                            }
                         }
+                        catch (Exception ex)
+                        {
+                            Console.WriteLine(ex.InnerException == null ? (ex.Message + "\n" + ex.StackTrace) : (ex.InnerException.Message + "\n" + ex.InnerException.StackTrace));
+                        }
+
 
                         //RFGateSocket rfocket = new RFGateSocket(new IPEndPoint(IPAddress.Parse(SERVER_IP).Address, PORT_NO));
                         //rfocket.Start();
@@ -943,7 +980,7 @@ namespace RFReaderConsole
 
         private static void Logger(string input)
         {
-            if (LogStatus == "DEBUG")
+            if (LogStatus == "DEBUG2" || LogStatus == "DEBUG")
             {
                 Console.WriteLine(input + " -- " + DateTime.Now.ToLongTimeString());
             }
